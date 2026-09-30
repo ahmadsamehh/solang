@@ -1,0 +1,114 @@
+# Run sorobench (solc semantic tests vs Solang's Soroban target) against the
+# Solang commit in this repository, and publish the explained report.
+#
+# Place at: .github/workflows/sorobench.yml in the Solang repo (or a fork).
+name: sorobench
+
+on:
+  # Every push to main and every release tag: test that exact commit.
+  push:
+    branches: [main]
+    tags: ['v*']
+  # Manual run from the Actions tab, optionally on another ref.
+  workflow_dispatch:
+    inputs:
+      solang_ref:
+        description: 'Solang ref to test (branch, tag or SHA). Empty = the selected branch.'
+        required: false
+        default: ''
+      sorobench_ref:
+        description: 'sorobench branch to use'
+        required: false
+        default: 'main'
+
+# One run per ref at a time; a newer push cancels an older run of the same ref.
+concurrency:
+  group: sorobench-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  SOROBENCH_REPO: ahmadsamehh/sorobench
+  SOLANG_REF: ${{ inputs.solang_ref || github.sha }}
+
+jobs:
+  sorobench:
+    name: sorobench (solc semantic tests on Soroban)
+    runs-on: ubuntu-latest
+    # Same image Solang's own CI uses: LLVM 16 is preinstalled and configured.
+    container: ghcr.io/hyperledger/solang-llvm:ci-7
+    timeout-minutes: 240
+    steps:
+      - name: Checkout Solang
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOLANG_REF }}
+          path: solang
+          # testdata/solidity is the pinned solc test suite sorobench runs.
+          submodules: recursive
+
+      - name: Checkout sorobench
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SOROBENCH_REPO }}
+          ref: ${{ inputs.sorobench_ref || 'main' }}
+          path: sorobench
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: sorobench -> target
+          # Solang changes on every run; keep the cache keyed on sorobench only.
+          key: sorobench
+
+      - name: Build sorobench against this Solang checkout
+        working-directory: sorobench
+        run: |
+          # sorobench pins Solang by git rev; point it at the checkout instead.
+          sed -i -E 's#^solang = \{ git = "[^"]+", rev = "[^"]+"#solang = { path = "../solang"#' Cargo.toml
+          sed -i -E 's#^solang-parser = \{ git = "[^"]+", rev = "[^"]+"#solang-parser = { path = "../solang/solang-parser"#' Cargo.toml
+          echo "Solang dependency:"
+          grep -n '^solang' Cargo.toml
+          grep -q 'path = "../solang"' Cargo.toml || { echo "::error::could not repoint the solang dependency"; exit 1; }
+          cargo build --release
+
+      - name: Run the solc semantic test suite
+        working-directory: sorobench
+        env:
+          SOROBENCH_CORPUS: ${{ github.workspace }}/solang/testdata/solidity/test/libsolidity/semanticTests
+        run: |
+          echo "Solang: $(git -C ../solang rev-parse --short HEAD) ($(git -C ../solang describe --tags --always))"
+          ./target/release/sorobench run-all
+
+      - name: Add the headline to the run summary
+        if: always()
+        working-directory: sorobench
+        run: |
+          {
+            echo "## sorobench on Solang @ $(git -C ../solang rev-parse --short HEAD)"
+            echo
+            if [ -f report/EXPLAINED.md ]; then
+              # Headline paragraph + the category table.
+              sed -n '3p' report/EXPLAINED.md
+              echo
+              sed -n '/^## What the failures are/,/^A file/p' report/EXPLAINED.md
+            else
+              echo "No report was produced."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sorobench-report-${{ github.run_number }}
+          path: |
+            sorobench/report/EXPLAINED.md
+            sorobench/report/summary.md
+            sorobench/report/results.jsonl
+          retention-days: 90
