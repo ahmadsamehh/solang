@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub(super) mod target;
-use crate::codegen::{
-    cfg::{ASTFunction, ControlFlowGraph},
-    HostFunctions, Options, STORAGE_INITIALIZER,
-};
+use crate::codegen::{cfg::ControlFlowGraph, HostFunctions, Options};
 
 use crate::emit::cfg::emit_cfg;
 use crate::{emit::Binary, sema::ast};
@@ -16,14 +13,13 @@ use inkwell::{
 };
 use soroban_sdk::xdr::{
     Limited, Limits, ScEnvMetaEntry, ScEnvMetaEntryInterfaceVersion, ScSpecEntry,
-    ScSpecFunctionInputV0, ScSpecFunctionV0, ScSpecTypeDef, StringM, WriteXdr,
+    ScSpecFunctionInputV0, ScSpecFunctionV0, ScSpecTypeDef, ScSpecTypeUdt, ScSpecTypeVec,
+    ScSpecUdtStructFieldV0, ScSpecUdtStructV0, StringM, WriteXdr,
 };
-use std::ffi::CString;
-use std::sync;
 
 const SOROBAN_ENV_INTERFACE_VERSION: ScEnvMetaEntryInterfaceVersion =
     ScEnvMetaEntryInterfaceVersion {
-        protocol: 22,
+        protocol: 23,
         pre_release: 0,
     };
 
@@ -36,6 +32,15 @@ impl HostFunctions {
                 .i64_type()
                 .fn_type(&[ty.into(), ty.into(), ty.into()], false),
             HostFunctions::GetContractData => bin
+                .context
+                .i64_type()
+                .fn_type(&[ty.into(), ty.into()], false),
+            HostFunctions::HasContractData => bin
+                .context
+                .i64_type()
+                .fn_type(&[ty.into(), ty.into()], false),
+
+            HostFunctions::DeleteContractData => bin
                 .context
                 .i64_type()
                 .fn_type(&[ty.into(), ty.into()], false),
@@ -61,6 +66,17 @@ impl HostFunctions {
                 .i64_type()
                 .fn_type(&[ty.into(), ty.into()], false),
             HostFunctions::VectorNew => bin.context.i64_type().fn_type(&[], false),
+            HostFunctions::BytesNew => bin.context.i64_type().fn_type(&[], false),
+            HostFunctions::VecPopBack => bin.context.i64_type().fn_type(&[ty.into()], false),
+            HostFunctions::VecGet => bin
+                .context
+                .i64_type()
+                .fn_type(&[ty.into(), ty.into()], false),
+
+            HostFunctions::VecPut => bin
+                .context
+                .i64_type()
+                .fn_type(&[ty.into(), ty.into(), ty.into()], false),
             HostFunctions::Call => bin
                 .context
                 .i64_type()
@@ -69,12 +85,29 @@ impl HostFunctions {
                 .context
                 .i64_type()
                 .fn_type(&[ty.into(), ty.into()], false),
+            HostFunctions::VecUnpackToLinearMemory => bin
+                .context
+                .i64_type()
+                .fn_type(&[ty.into(), ty.into(), ty.into()], false),
             HostFunctions::ObjToU64 => bin.context.i64_type().fn_type(&[ty.into()], false),
             HostFunctions::ObjFromU64 => bin.context.i64_type().fn_type(&[ty.into()], false),
+            HostFunctions::ObjToI64 => bin.context.i64_type().fn_type(&[ty.into()], false),
+            HostFunctions::ObjFromI64 => bin.context.i64_type().fn_type(&[ty.into()], false),
             HostFunctions::RequireAuth => bin.context.i64_type().fn_type(&[ty.into()], false),
+            HostFunctions::RequireAuthForArgs => bin
+                .context
+                .i64_type()
+                .fn_type(&[ty.into(), ty.into()], false),
             HostFunctions::AuthAsCurrContract => {
                 bin.context.i64_type().fn_type(&[ty.into()], false)
             }
+            HostFunctions::UpdateCurrentContractWasm => {
+                bin.context.i64_type().fn_type(&[ty.into()], false)
+            }
+            HostFunctions::CreateContractWithConstructor => bin
+                .context
+                .i64_type()
+                .fn_type(&[ty.into(), ty.into(), ty.into(), ty.into()], false),
             HostFunctions::MapNewFromLinearMemory => bin
                 .context
                 .i64_type()
@@ -87,16 +120,35 @@ impl HostFunctions {
                 .i64_type()
                 .fn_type(&[ty.into(), ty.into(), ty.into()], false),
 
+            HostFunctions::MapGet => bin
+                .context
+                .i64_type()
+                .fn_type(&[ty.into(), ty.into()], false),
+
+            HostFunctions::MapDel => bin
+                .context
+                .i64_type()
+                .fn_type(&[ty.into(), ty.into()], false),
+
+            HostFunctions::MapHas => bin
+                .context
+                .i64_type()
+                .fn_type(&[ty.into(), ty.into()], false),
+
             HostFunctions::VecPushBack => bin
                 .context
                 .i64_type()
                 .fn_type(&[ty.into(), ty.into()], false),
+
+            HostFunctions::VecLen => bin.context.i64_type().fn_type(&[ty.into()], false),
 
             HostFunctions::StringNewFromLinearMemory => bin
                 .context
                 .i64_type()
                 .fn_type(&[ty.into(), ty.into()], false),
             HostFunctions::StrKeyToAddr => bin.context.i64_type().fn_type(&[ty.into()], false),
+            HostFunctions::GetLedgerTimestamp => bin.context.i64_type().fn_type(&[], false),
+            HostFunctions::GetLedgerSequence => bin.context.i64_type().fn_type(&[], false),
             HostFunctions::GetCurrentContractAddress => bin.context.i64_type().fn_type(&[], false),
             HostFunctions::ObjToI128Lo64 => bin.context.i64_type().fn_type(&[ty.into()], false),
             HostFunctions::ObjToI128Hi64 => bin.context.i64_type().fn_type(&[ty.into()], false),
@@ -110,6 +162,77 @@ impl HostFunctions {
                 .context
                 .i64_type()
                 .fn_type(&[ty.into(), ty.into()], false),
+            HostFunctions::ObjToU256LoLo => bin.context.i64_type().fn_type(&[ty.into()], false),
+            HostFunctions::ObjToU256LoHi => bin.context.i64_type().fn_type(&[ty.into()], false),
+            HostFunctions::ObjToU256HiLo => bin.context.i64_type().fn_type(&[ty.into()], false),
+            HostFunctions::ObjToU256HiHi => bin.context.i64_type().fn_type(&[ty.into()], false),
+            HostFunctions::ObjFromU256Pieces => bin
+                .context
+                .i64_type()
+                .fn_type(&[ty.into(), ty.into(), ty.into(), ty.into()], false),
+            HostFunctions::ObjToI256LoLo => bin.context.i64_type().fn_type(&[ty.into()], false),
+            HostFunctions::ObjToI256LoHi => bin.context.i64_type().fn_type(&[ty.into()], false),
+            HostFunctions::ObjToI256HiLo => bin.context.i64_type().fn_type(&[ty.into()], false),
+            HostFunctions::ObjToI256HiHi => bin.context.i64_type().fn_type(&[ty.into()], false),
+            HostFunctions::ObjFromI256Pieces => bin
+                .context
+                .i64_type()
+                .fn_type(&[ty.into(), ty.into(), ty.into(), ty.into()], false),
+            HostFunctions::BytesNewFromLinearMemory => bin
+                .context
+                .i64_type()
+                .fn_type(&[ty.into(), ty.into()], false),
+            HostFunctions::BytesLen => bin.context.i64_type().fn_type(&[ty.into()], false),
+            HostFunctions::BytesCopyToLinearMemory => bin
+                .context
+                .i64_type()
+                .fn_type(&[ty.into(), ty.into(), ty.into(), ty.into()], false),
+            HostFunctions::BytesGet => bin
+                .context
+                .i64_type()
+                .fn_type(&[ty.into(), ty.into()], false),
+            HostFunctions::BytesPut => bin
+                .context
+                .i64_type()
+                .fn_type(&[ty.into(), ty.into(), ty.into()], false),
+            HostFunctions::BytesPush => bin
+                .context
+                .i64_type()
+                .fn_type(&[ty.into(), ty.into()], false),
+            HostFunctions::BytesPop => bin.context.i64_type().fn_type(&[ty.into()], false),
+            HostFunctions::StringLen => bin.context.i64_type().fn_type(&[ty.into()], false),
+            HostFunctions::StringCopyToLinearMemory => bin
+                .context
+                .i64_type()
+                .fn_type(&[ty.into(), ty.into(), ty.into(), ty.into()], false),
+            HostFunctions::ContractEvent => bin
+                .context
+                .i64_type()
+                .fn_type(&[ty.into(), ty.into()], false),
+            HostFunctions::ComputeHashSha256 => bin.context.i64_type().fn_type(&[ty.into()], false),
+            HostFunctions::ComputeHashKeccak256 => {
+                bin.context.i64_type().fn_type(&[ty.into()], false)
+            }
+            HostFunctions::SerializeToBytes => bin.context.i64_type().fn_type(&[ty.into()], false),
+            HostFunctions::DeserializeFromBytes => {
+                bin.context.i64_type().fn_type(&[ty.into()], false)
+            }
+            HostFunctions::ObjCmp => bin
+                .context
+                .i64_type()
+                .fn_type(&[ty.into(), ty.into()], false),
+            HostFunctions::Bls12381G1Add => bin
+                .context
+                .i64_type()
+                .fn_type(&[ty.into(), ty.into()], false),
+            HostFunctions::Bls12381G1Mul => bin
+                .context
+                .i64_type()
+                .fn_type(&[ty.into(), ty.into()], false),
+            HostFunctions::Bls12381MultiPairingCheck => bin
+                .context
+                .i64_type()
+                .fn_type(&[ty.into(), ty.into()], false),
         }
     }
 }
@@ -117,6 +240,44 @@ impl HostFunctions {
 pub struct SorobanTarget;
 
 impl SorobanTarget {
+    fn type_to_spec(ty: &ast::Type, ns: &ast::Namespace) -> ScSpecTypeDef {
+        match ty {
+            ast::Type::Ref(inner) | ast::Type::SorobanHandle(inner) => {
+                Self::type_to_spec(inner, ns)
+            }
+            ast::Type::Array(elem, _) => ScSpecTypeDef::Vec(Box::new(ScSpecTypeVec {
+                element_type: Box::new(Self::type_to_spec(elem, ns)),
+            })),
+            ast::Type::Uint(32) => ScSpecTypeDef::U32,
+            ast::Type::Int(32) => ScSpecTypeDef::I32,
+            ast::Type::Enum(_) => ScSpecTypeDef::U32,
+            ast::Type::Uint(64) => ScSpecTypeDef::U64,
+            ast::Type::Int(64) => ScSpecTypeDef::I64,
+            ast::Type::Int(128) => ScSpecTypeDef::I128,
+            ast::Type::Uint(128) => ScSpecTypeDef::U128,
+            ast::Type::Int(256) => ScSpecTypeDef::I256,
+            ast::Type::Uint(256) => ScSpecTypeDef::U256,
+            ast::Type::Int(_) => ScSpecTypeDef::I32,
+            ast::Type::Uint(_) => ScSpecTypeDef::U32,
+            ast::Type::Bool => ScSpecTypeDef::Bool,
+            ast::Type::Address(_) => ScSpecTypeDef::Address,
+            ast::Type::Bytes(_) | ast::Type::DynamicBytes => ScSpecTypeDef::Bytes,
+            ast::Type::String => ScSpecTypeDef::String,
+            ast::Type::Void => ScSpecTypeDef::Void,
+            ast::Type::Struct(ast::StructType::UserDefined(n)) => Self::udt_spec_type(*n, ns),
+            _ => panic!("unsupported type in spec: {ty:?}"),
+        }
+    }
+
+    fn udt_spec_type(struct_no: usize, ns: &ast::Namespace) -> ScSpecTypeDef {
+        let name = ns.structs[struct_no].id.name.as_str();
+        ScSpecTypeDef::Udt(ScSpecTypeUdt {
+            name: name
+                .try_into()
+                .unwrap_or_else(|_| panic!("struct name {name:?} exceeds the 60-char spec limit")),
+        })
+    }
+
     pub fn build<'a>(
         context: &'a Context,
         std_lib: &Module<'a>,
@@ -126,9 +287,9 @@ impl SorobanTarget {
         contract_no: usize,
     ) -> Binary<'a> {
         let filename = ns.files[contract.loc.file_no()].file_name();
-        let mut binary = Binary::new(
+        let mut bin = Binary::new(
             context,
-            ns.target,
+            ns,
             &contract.id.name,
             &filename,
             opt,
@@ -137,30 +298,23 @@ impl SorobanTarget {
         );
 
         let mut export_list = Vec::new();
-        Self::declare_externals(&mut binary);
-        Self::emit_functions_with_spec(
-            contract,
-            &mut binary,
-            ns,
-            context,
-            contract_no,
-            &mut export_list,
-        );
-        binary.internalize(export_list.as_slice());
+        Self::declare_externals(&mut bin);
+        Self::emit_functions_with_spec(contract, &mut bin, context, contract_no, &mut export_list);
+        Self::emit_struct_spec_entries(context, contract, &mut bin);
+        bin.internalize(export_list.as_slice());
 
-        Self::emit_initializer(&mut binary, ns);
+        //Self::emit_initializer(&mut binary, ns, contract.constructors(ns).first());
 
-        Self::emit_env_meta_entries(context, &mut binary, opt);
+        Self::emit_env_meta_entries(context, &mut bin, opt);
 
-        binary
+        bin
     }
 
     // In Soroban, the public functions specifications is embeded in the contract binary.
     // for each function, emit both the function spec entry and the function body.
     fn emit_functions_with_spec<'a>(
         contract: &'a ast::Contract,
-        binary: &mut Binary<'a>,
-        ns: &'a ast::Namespace,
+        bin: &mut Binary<'a>,
         context: &'a Context,
         _contract_no: usize,
         export_list: &mut Vec<&'a str>,
@@ -168,10 +322,9 @@ impl SorobanTarget {
         let mut defines = Vec::new();
 
         for (cfg_no, cfg) in contract.cfg.iter().enumerate() {
-            let ftype = binary.function_type(
+            let ftype = bin.function_type(
                 &cfg.params.iter().map(|p| p.ty.clone()).collect::<Vec<_>>(),
                 &cfg.returns.iter().map(|p| p.ty.clone()).collect::<Vec<_>>(),
-                ns,
             );
 
             // For each function, determine the name and the linkage
@@ -187,38 +340,37 @@ impl SorobanTarget {
                 } else {
                     &cfg.name
                 };
-                Self::emit_function_spec_entry(context, cfg, name.to_string(), binary);
+                Self::emit_function_spec_entry(context, cfg, name.to_string(), bin);
                 export_list.push(name);
                 Linkage::External
             } else {
                 Linkage::Internal
             };
 
-            let func_decl = if let Some(func) = binary.module.get_function(&cfg.name) {
+            let func_decl = if let Some(func) = bin.module.get_function(&cfg.name) {
                 // must not have a body yet
                 assert_eq!(func.get_first_basic_block(), None);
 
                 func
             } else {
-                binary.module.add_function(&cfg.name, ftype, Some(linkage))
+                bin.module.add_function(&cfg.name, ftype, Some(linkage))
             };
 
-            binary.functions.insert(cfg_no, func_decl);
+            bin.functions.insert(cfg_no, func_decl);
 
             defines.push((func_decl, cfg));
         }
 
         let init_type = context.i64_type().fn_type(&[], false);
-        binary
-            .module
+        bin.module
             .add_function("storage_initializer", init_type, None);
 
         for (func_decl, cfg) in defines {
-            emit_cfg(&mut SorobanTarget, binary, contract, cfg, func_decl, ns);
+            emit_cfg(&mut SorobanTarget, bin, contract, cfg, func_decl);
         }
     }
 
-    fn emit_env_meta_entries<'a>(context: &'a Context, binary: &mut Binary<'a>, opt: &'a Options) {
+    fn emit_env_meta_entries<'a>(context: &'a Context, bin: &mut Binary<'a>, opt: &'a Options) {
         let mut meta = Limited::new(Vec::new(), Limits::none());
         let soroban_env_interface_version = opt.soroban_version;
         let soroban_env_interface_version = match soroban_env_interface_version {
@@ -231,17 +383,17 @@ impl SorobanTarget {
         ScEnvMetaEntry::ScEnvMetaKindInterfaceVersion(soroban_env_interface_version)
             .write_xdr(&mut meta)
             .expect("writing env meta interface version to xdr");
-        Self::add_custom_section(context, &binary.module, "contractenvmetav0", meta.inner);
+        Self::add_custom_section(context, &bin.module, "contractenvmetav0", meta.inner);
     }
 
     fn emit_function_spec_entry<'a>(
         context: &'a Context,
         cfg: &ControlFlowGraph,
         name: String,
-        binary: &mut Binary<'a>,
+        bin: &mut Binary<'a>,
     ) {
         if cfg.public && !cfg.is_placeholder() {
-            // TODO: Emit custom type spec entries
+            let ns = bin.ns;
             let mut spec = Limited::new(Vec::new(), Limits::none());
             ScSpecEntry::FunctionV0(ScSpecFunctionV0 {
                 name: name
@@ -259,25 +411,7 @@ impl SorobanTarget {
                             .unwrap_or_else(|| i.to_string())
                             .try_into()
                             .expect("function input name exceeds limit"),
-                        type_: {
-                            let ty = if let ast::Type::Ref(ty) = &p.ty {
-                                ty.as_ref()
-                            } else {
-                                &p.ty
-                            };
-
-                            match ty {
-                                ast::Type::Uint(32) => ScSpecTypeDef::U32,
-                                ast::Type::Uint(64) => ScSpecTypeDef::U64,
-                                ast::Type::Int(128) => ScSpecTypeDef::I128,
-                                ast::Type::Uint(128) => ScSpecTypeDef::U128,
-                                ast::Type::Bool => ScSpecTypeDef::Bool,
-                                ast::Type::Address(_) => ScSpecTypeDef::Address,
-                                ast::Type::Bytes(_) => ScSpecTypeDef::Bytes,
-                                ast::Type::String => ScSpecTypeDef::String,
-                                _ => panic!("unsupported input type {:?}", p.ty),
-                            }
-                        }, // TODO: Map type.
+                        type_: Self::type_to_spec(&p.ty, ns),
                         doc: StringM::default(), // TODO: Add doc.
                     })
                     .collect::<Vec<_>>()
@@ -286,27 +420,7 @@ impl SorobanTarget {
                 outputs: cfg
                     .returns
                     .iter()
-                    .map(|return_type| {
-                        let ret_type = return_type.ty.clone();
-                        let ty = if let ast::Type::Ref(ty) = ret_type {
-                            *ty
-                        } else {
-                            ret_type
-                        };
-                        match ty {
-                            ast::Type::Uint(32) => ScSpecTypeDef::U32,
-                            ast::Type::Uint(64) => ScSpecTypeDef::U64,
-                            ast::Type::Int(128) => ScSpecTypeDef::I128,
-                            ast::Type::Uint(128) => ScSpecTypeDef::U128,
-                            ast::Type::Int(_) => ScSpecTypeDef::I32,
-                            ast::Type::Bool => ScSpecTypeDef::Bool,
-                            ast::Type::Address(_) => ScSpecTypeDef::Address,
-                            ast::Type::Bytes(_) => ScSpecTypeDef::Bytes,
-                            ast::Type::String => ScSpecTypeDef::String,
-                            ast::Type::Void => ScSpecTypeDef::Void,
-                            _ => panic!("unsupported return type {:?}", ty),
-                        }
-                    }) // TODO: Map type.
+                    .map(|return_type| Self::type_to_spec(&return_type.ty, ns))
                     .collect::<Vec<_>>()
                     .try_into()
                     .expect("function output count exceeds limit"),
@@ -315,7 +429,88 @@ impl SorobanTarget {
             .write_xdr(&mut spec)
             .unwrap_or_else(|_| panic!("writing spec to xdr for function {}", cfg.name));
 
-            Self::add_custom_section(context, &binary.module, "contractspecv0", spec.inner);
+            Self::add_custom_section(context, &bin.module, "contractspecv0", spec.inner);
+        }
+    }
+
+    fn emit_struct_spec_entries<'a>(
+        context: &'a Context,
+        contract: &'a ast::Contract,
+        bin: &mut Binary<'a>,
+    ) {
+        let ns = bin.ns;
+        let mut structs: Vec<usize> = Vec::new();
+        for cfg in contract.cfg.iter() {
+            if !cfg.public || cfg.is_placeholder() {
+                continue;
+            }
+            for p in cfg.params.iter() {
+                Self::collect_struct_deps(&p.ty, ns, &mut structs);
+            }
+            for p in cfg.returns.iter() {
+                Self::collect_struct_deps(&p.ty, ns, &mut structs);
+            }
+        }
+
+        for struct_no in structs {
+            let decl = &ns.structs[struct_no];
+
+            let name: StringM<60> = decl.id.name.as_str().try_into().unwrap_or_else(|_| {
+                panic!(
+                    "struct name {:?} exceeds the 60-char spec limit",
+                    decl.id.name
+                )
+            });
+
+            let fields = decl
+                .fields
+                .iter()
+                .enumerate()
+                .map(|(i, f)| {
+                    let fname =
+                        f.id.as_ref()
+                            .map(|id| id.name.clone())
+                            .unwrap_or_else(|| i.to_string());
+                    ScSpecUdtStructFieldV0 {
+                        doc: StringM::default(),
+                        name: fname.as_str().try_into().unwrap_or_else(|_| {
+                            panic!("struct field name {fname:?} exceeds the 30-char spec limit")
+                        }),
+                        type_: Self::type_to_spec(&f.ty, ns),
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            let mut spec = Limited::new(Vec::new(), Limits::none());
+            ScSpecEntry::UdtStructV0(ScSpecUdtStructV0 {
+                doc: StringM::default(),
+                lib: StringM::default(),
+                name,
+                fields: fields
+                    .try_into()
+                    .expect("struct field count exceeds spec limit"),
+            })
+            .write_xdr(&mut spec)
+            .unwrap_or_else(|_| panic!("writing struct spec entry for {:?}", decl.id.name));
+            Self::add_custom_section(context, &bin.module, "contractspecv0", spec.inner);
+        }
+    }
+
+    fn collect_struct_deps(ty: &ast::Type, ns: &ast::Namespace, acc: &mut Vec<usize>) {
+        match ty {
+            ast::Type::Ref(inner)
+            | ast::Type::SorobanHandle(inner)
+            | ast::Type::StorageRef(_, inner) => Self::collect_struct_deps(inner, ns, acc),
+            ast::Type::Struct(ast::StructType::UserDefined(n)) => {
+                if !acc.contains(n) {
+                    acc.push(*n);
+                    for f in &ns.structs[*n].fields {
+                        Self::collect_struct_deps(&f.ty, ns, acc);
+                    }
+                }
+            }
+            ast::Type::Array(elem, _) => Self::collect_struct_deps(elem, ns, acc),
+            _ => {}
         }
     }
 
@@ -342,19 +537,25 @@ impl SorobanTarget {
             .expect("adding spec as metadata");
     }
 
-    fn declare_externals(binary: &mut Binary) {
+    fn declare_externals(bin: &mut Binary) {
         let host_functions = [
             HostFunctions::PutContractData,
             HostFunctions::GetContractData,
+            HostFunctions::HasContractData,
+            HostFunctions::DeleteContractData,
             HostFunctions::ExtendContractDataTtl,
             HostFunctions::ExtendCurrentContractInstanceAndCodeTtl,
             HostFunctions::LogFromLinearMemory,
             HostFunctions::SymbolNewFromLinearMemory,
             HostFunctions::VectorNew,
+            HostFunctions::BytesNew,
             HostFunctions::Call,
             HostFunctions::VectorNewFromLinearMemory,
+            HostFunctions::VecUnpackToLinearMemory,
             HostFunctions::ObjToU64,
             HostFunctions::ObjFromU64,
+            HostFunctions::ObjToI64,
+            HostFunctions::ObjFromI64,
             HostFunctions::PutContractData,
             HostFunctions::ObjToI128Lo64,
             HostFunctions::ObjToI128Hi64,
@@ -362,60 +563,63 @@ impl SorobanTarget {
             HostFunctions::ObjToU128Hi64,
             HostFunctions::ObjFromI128Pieces,
             HostFunctions::ObjFromU128Pieces,
+            HostFunctions::ObjToU256LoLo,
+            HostFunctions::ObjToU256LoHi,
+            HostFunctions::ObjToU256HiLo,
+            HostFunctions::ObjToU256HiHi,
+            HostFunctions::ObjFromU256Pieces,
+            HostFunctions::ObjToI256LoLo,
+            HostFunctions::ObjToI256LoHi,
+            HostFunctions::ObjToI256HiLo,
+            HostFunctions::ObjToI256HiHi,
+            HostFunctions::ObjFromI256Pieces,
             HostFunctions::RequireAuth,
+            HostFunctions::RequireAuthForArgs,
             HostFunctions::AuthAsCurrContract,
+            HostFunctions::UpdateCurrentContractWasm,
+            HostFunctions::CreateContractWithConstructor,
             HostFunctions::MapNewFromLinearMemory,
             HostFunctions::MapNew,
             HostFunctions::MapPut,
+            HostFunctions::MapGet,
+            HostFunctions::MapDel,
+            HostFunctions::MapHas,
             HostFunctions::VecPushBack,
+            HostFunctions::VecGet,
+            HostFunctions::VecPut,
             HostFunctions::StringNewFromLinearMemory,
             HostFunctions::StrKeyToAddr,
+            HostFunctions::GetLedgerTimestamp,
+            HostFunctions::GetLedgerSequence,
             HostFunctions::GetCurrentContractAddress,
+            HostFunctions::BytesNewFromLinearMemory,
+            HostFunctions::BytesCopyToLinearMemory,
+            HostFunctions::BytesLen,
+            HostFunctions::BytesGet,
+            HostFunctions::BytesPut,
+            HostFunctions::BytesPush,
+            HostFunctions::BytesPop,
+            HostFunctions::StringLen,
+            HostFunctions::StringCopyToLinearMemory,
+            HostFunctions::VecLen,
+            HostFunctions::VecPopBack,
+            HostFunctions::ContractEvent,
+            HostFunctions::ComputeHashSha256,
+            HostFunctions::ComputeHashKeccak256,
+            HostFunctions::SerializeToBytes,
+            HostFunctions::DeserializeFromBytes,
+            HostFunctions::ObjCmp,
+            HostFunctions::Bls12381G1Add,
+            HostFunctions::Bls12381G1Mul,
+            HostFunctions::Bls12381MultiPairingCheck,
         ];
 
         for func in &host_functions {
-            binary.module.add_function(
+            bin.module.add_function(
                 func.name(),
-                func.function_signature(binary),
+                func.function_signature(bin),
                 Some(Linkage::External),
             );
         }
-    }
-
-    fn emit_initializer(binary: &mut Binary, _ns: &ast::Namespace) {
-        let mut cfg = ControlFlowGraph::new("__constructor".to_string(), ASTFunction::None);
-
-        cfg.public = true;
-        let void_param = ast::Parameter::new_default(ast::Type::Void);
-        cfg.returns = sync::Arc::new(vec![void_param]);
-
-        Self::emit_function_spec_entry(binary.context, &cfg, "__constructor".to_string(), binary);
-
-        let function_name = CString::new(STORAGE_INITIALIZER).unwrap();
-        let mut storage_initializers = binary
-            .functions
-            .values()
-            .filter(|f: &&inkwell::values::FunctionValue| f.get_name() == function_name.as_c_str());
-        let storage_initializer = *storage_initializers
-            .next()
-            .expect("storage initializer is always present");
-        assert!(storage_initializers.next().is_none());
-
-        let void_type = binary.context.i64_type().fn_type(&[], false);
-        let constructor =
-            binary
-                .module
-                .add_function("__constructor", void_type, Some(Linkage::External));
-        let entry = binary.context.append_basic_block(constructor, "entry");
-
-        binary.builder.position_at_end(entry);
-        binary
-            .builder
-            .build_call(storage_initializer, &[], "storage_initializer")
-            .unwrap();
-
-        // return zero
-        let zero_val = binary.context.i64_type().const_int(2, false);
-        binary.builder.build_return(Some(&zero_val)).unwrap();
     }
 }

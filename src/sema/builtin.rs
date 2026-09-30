@@ -36,17 +36,86 @@ pub struct Prototype {
 }
 
 // A list of all Solidity builtins functions
-pub static BUILTIN_FUNCTIONS: Lazy<[Prototype; 29]> = Lazy::new(|| {
+pub static BUILTIN_FUNCTIONS: Lazy<[Prototype; 35]> = Lazy::new(|| {
     [
         Prototype {
             builtin: Builtin::ExtendInstanceTtl,
             namespace: None,
             method: vec![],
-            name: "extendInstanceTtl",  
+            name: "extendInstanceTtl",
             params: vec![Type::Uint(32), Type::Uint(32)],
             ret: vec![Type::Int(64)],
             target: vec![Target::Soroban],
             doc: "If the TTL for the current contract instance and code (if applicable) is below `threshold` ledgers, extend `live_until_ledger_seq` such that TTL == `extend_to`, where TTL is defined as live_until_ledger_seq - current ledger.",
+            constant: false,
+        },
+        Prototype {
+            builtin: Builtin::UpdateCurrentContractWasm,
+            namespace: None,
+            method: vec![],
+            name: "updateCurrentContractWasm",
+            params: vec![Type::Bytes(32)],
+            ret: vec![],
+            target: vec![Target::Soroban],
+            doc: "Replaces the running contract's Wasm code with the module identified by the given 32-byte hash (an already-uploaded Wasm blob). Maps to the host function `update_current_contract_wasm`. The upgrade takes effect after the current invocation completes.",
+            constant: false,
+        },
+        Prototype {
+            builtin: Builtin::DeployContract,
+            namespace: None,
+            method: vec![],
+            name: "deployContract",
+            params: vec![Type::Bytes(32), Type::Bytes(32)],
+            ret: vec![Type::Address(false)],
+            target: vec![Target::Soroban],
+            doc: "Deploys an already-uploaded Wasm blob (identified by its 32-byte hash) on behalf of the current contract, using `salt` to derive the new contract address, and invokes its constructor with the given arguments. Maps to the host function `create_contract_with_constructor`. Returns the deployed contract's address.",
+            constant: false,
+        },
+        Prototype {
+            builtin: Builtin::ToXdr,
+            namespace: None,
+            method: vec![],
+            name: "to_xdr",
+            params: vec![],
+            ret: vec![Type::DynamicBytes],
+            target: vec![Target::Soroban],
+            doc: "Serialize any single value to its canonical XDR `bytes` encoding via the Soroban host function `serialize_to_bytes`. Equivalent to the Soroban SDK's `val.to_xdr(&env)`.",
+            constant: false,
+        },
+        Prototype {
+            builtin: Builtin::Bls12381G1Add,
+            namespace: None,
+            method: vec![],
+            name: "bls12_381_g1_add",
+            params: vec![Type::DynamicBytes, Type::DynamicBytes],
+            ret: vec![Type::DynamicBytes],
+            target: vec![Target::Soroban],
+            doc: "Adds two BLS12-381 G1 points (each 96-byte `bytes` encodings) and returns the resulting G1 point. Maps to the host function `bls12_381_g1_add`.",
+            constant: false,
+        },
+        Prototype {
+            builtin: Builtin::Bls12381G1Mul,
+            namespace: None,
+            method: vec![],
+            name: "bls12_381_g1_mul",
+            params: vec![Type::DynamicBytes, Type::Uint(256)],
+            ret: vec![Type::DynamicBytes],
+            target: vec![Target::Soroban],
+            doc: "Multiplies a BLS12-381 G1 point (96-byte `bytes`) by a scalar (`uint256` Fr element) and returns the resulting G1 point. Maps to the host function `bls12_381_g1_mul`.",
+            constant: false,
+        },
+        Prototype {
+            builtin: Builtin::Bls12381MultiPairingCheck,
+            namespace: None,
+            method: vec![],
+            name: "bls12_381_pairing_check",
+            params: vec![
+                Type::Array(Box::new(Type::DynamicBytes), vec![ArrayLength::Dynamic]),
+                Type::Array(Box::new(Type::DynamicBytes), vec![ArrayLength::Dynamic]),
+            ],
+            ret: vec![Type::Bool],
+            target: vec![Target::Soroban],
+            doc: "Performs the BLS12-381 multi-pairing check on a vector of G1 points (`bytes[]`) and a vector of G2 points (`bytes[]`), returning true if the pairing product equals one. Maps to the host function `bls12_381_multi_pairing_check`.",
             constant: false,
         },
         Prototype {
@@ -79,7 +148,7 @@ pub static BUILTIN_FUNCTIONS: Lazy<[Prototype; 29]> = Lazy::new(|| {
             params: vec![Type::Bool],
             ret: vec![Type::Void],
             target: vec![],
-            doc: "Abort execution if argument evaulates to false",
+            doc: "Abort execution if argument evaluates to false",
             constant: false,
         },
         Prototype {
@@ -90,7 +159,7 @@ pub static BUILTIN_FUNCTIONS: Lazy<[Prototype; 29]> = Lazy::new(|| {
             params: vec![Type::Bool, Type::String],
             ret: vec![Type::Void],
             target: vec![],
-            doc: "Abort execution if argument evaulates to false. Report string when aborting",
+            doc: "Abort execution if argument evaluates to false. Report string when aborting",
             constant: false,
         },
         Prototype {
@@ -996,6 +1065,64 @@ pub(super) fn resolve_call(
     symtable: &mut Symtable,
     diagnostics: &mut Diagnostics,
 ) -> Result<Expression, ()> {
+    if namespace.is_none() && id == "deployContract" && ns.target == Target::Soroban {
+        if args.len() < 2 {
+            diagnostics.push(Diagnostic::error(
+                *loc,
+                format!(
+                    "builtin function 'deployContract' expects at least 2 arguments (wasm hash and salt), {} provided",
+                    args.len()
+                ),
+            ));
+            return Err(());
+        }
+
+        let mut resolved_args = Vec::with_capacity(args.len());
+        for arg in &args[..2] {
+            let expr = expression(
+                arg,
+                context,
+                ns,
+                symtable,
+                diagnostics,
+                ResolveTo::Type(&Type::Bytes(32)),
+            )?;
+            resolved_args.push(expr.cast(&arg.loc(), &Type::Bytes(32), true, ns, diagnostics)?);
+        }
+        for arg in &args[2..] {
+            resolved_args.push(resolve_encode_arg(arg, context, ns, symtable, diagnostics)?);
+        }
+
+        return Ok(Expression::Builtin {
+            loc: *loc,
+            tys: vec![Type::Address(false)],
+            kind: Builtin::DeployContract,
+            args: resolved_args,
+        });
+    }
+
+    if namespace.is_none() && id == "to_xdr" {
+        if args.len() != 1 {
+            diagnostics.push(Diagnostic::error(
+                *loc,
+                format!(
+                    "builtin function 'to_xdr' expects 1 argument, {} provided",
+                    args.len()
+                ),
+            ));
+            return Err(());
+        }
+
+        let arg = resolve_encode_arg(&args[0], context, ns, symtable, diagnostics)?;
+
+        return Ok(Expression::Builtin {
+            loc: *loc,
+            tys: vec![Type::DynamicBytes],
+            kind: Builtin::ToXdr,
+            args: vec![arg],
+        });
+    }
+
     let funcs = BUILTIN_FUNCTIONS
         .iter()
         .filter(|p| p.name == id && p.namespace == namespace && p.method.is_empty())
@@ -1401,26 +1528,7 @@ pub(super) fn resolve_namespace_call(
     }
 
     for arg in args_iter {
-        let mut expr = expression(arg, context, ns, symtable, diagnostics, ResolveTo::Unknown)?;
-        let ty = expr.ty();
-
-        if ty.is_mapping() || ty.is_recursive(ns) {
-            diagnostics.push(Diagnostic::error(
-                arg.loc(),
-                format!("Invalid type '{}': mappings and recursive types cannot be abi decoded or encoded", ty.to_string(ns)),
-            ));
-
-            return Err(());
-        }
-
-        expr = expr.cast(&arg.loc(), ty.deref_any(), true, ns, diagnostics)?;
-
-        // A string or hex literal should be encoded as a string
-        if let Expression::BytesLiteral { .. } = &expr {
-            expr = expr.cast(&arg.loc(), &Type::String, true, ns, diagnostics)?;
-        }
-
-        resolved_args.push(expr);
+        resolved_args.push(resolve_encode_arg(arg, context, ns, symtable, diagnostics)?);
     }
 
     Ok(Expression::Builtin {
@@ -1429,6 +1537,38 @@ pub(super) fn resolve_namespace_call(
         kind: builtin,
         args: resolved_args,
     })
+}
+
+fn resolve_encode_arg(
+    arg: &pt::Expression,
+    context: &mut ExprContext,
+    ns: &mut Namespace,
+    symtable: &mut Symtable,
+    diagnostics: &mut Diagnostics,
+) -> Result<Expression, ()> {
+    let mut expr = expression(arg, context, ns, symtable, diagnostics, ResolveTo::Unknown)?;
+    let ty = expr.ty();
+
+    if ty.is_mapping() || ty.is_recursive(ns) {
+        diagnostics.push(Diagnostic::error(
+            arg.loc(),
+            format!(
+                "Invalid type '{}': mappings and recursive types cannot be abi decoded or encoded",
+                ty.to_string(ns)
+            ),
+        ));
+
+        return Err(());
+    }
+
+    expr = expr.cast(&arg.loc(), ty.deref_any(), true, ns, diagnostics)?;
+
+    // A string or hex literal should be encoded as a string
+    if let Expression::BytesLiteral { .. } = &expr {
+        expr = expr.cast(&arg.loc(), &Type::String, true, ns, diagnostics)?;
+    }
+
+    Ok(expr)
 }
 
 /// Resolve a builtin call
@@ -1443,6 +1583,34 @@ pub(super) fn resolve_method_call(
 ) -> Result<Option<Expression>, ()> {
     let expr_ty = expr.ty();
     let deref_ty = expr_ty.deref_memory();
+
+    if id.name == "requireAuthForArgs" && ns.target == Target::Soroban {
+        let is_address = matches!(deref_ty, Type::Address(_))
+            || matches!(&expr_ty, Type::StorageRef(_, inner) if matches!(**inner, Type::Address(_)));
+
+        if is_address {
+            let mut resolved_args = vec![expr.cast(&id.loc, deref_ty, true, ns, diagnostics)?];
+
+            for arg in args {
+                resolved_args.push(expression(
+                    arg,
+                    context,
+                    ns,
+                    symtable,
+                    diagnostics,
+                    ResolveTo::Unknown,
+                )?);
+            }
+
+            return Ok(Some(Expression::Builtin {
+                loc: id.loc,
+                tys: vec![Type::Void],
+                kind: Builtin::RequireAuthForArgs,
+                args: resolved_args,
+            }));
+        }
+    }
+
     let funcs: Vec<_> = BUILTIN_METHODS
         .iter()
         .filter(|func| func.name == id.name && func.method.contains(deref_ty))

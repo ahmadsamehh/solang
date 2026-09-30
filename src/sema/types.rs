@@ -1303,6 +1303,7 @@ impl Type {
             Type::Unresolved => "unresolved".into(),
             Type::BufferPointer => "buffer_pointer".into(),
             Type::FunctionSelector => "function_selector".into(),
+            Type::SorobanHandle(inner) => format!("soroban_handle({})", inner.to_string(ns)),
         }
     }
 
@@ -1408,7 +1409,7 @@ impl Type {
             Type::Bytes(_) => false,
             Type::Enum(_) => false,
             Type::Struct(_) => true,
-            Type::Array(_, dims) => !dims.iter().any(|d| *d == ArrayLength::Dynamic),
+            Type::Array(_, dims) => !dims.contains(&ArrayLength::Dynamic),
             Type::DynamicBytes => false,
             Type::String => false,
             Type::Mapping(..) => false,
@@ -1552,7 +1553,7 @@ impl Type {
             Type::Int(n) | Type::Uint(n) => BigInt::from(n / 8),
             Type::Rational => unreachable!(),
             Type::Array(ty, dims) => {
-                if dims.iter().any(|d| *d == ArrayLength::Dynamic) {
+                if dims.contains(&ArrayLength::Dynamic) {
                     BigInt::from(ns.target.ptr_size() / 8)
                 } else {
                     ty.struct_elem_alignment(ns)
@@ -1640,8 +1641,8 @@ impl Type {
         match self {
             Type::Contract(_) | Type::Address(_) => ns.address_length as u8,
             Type::Bool => 1,
-            Type::Int(n) => ((*n + 7) / 8) as u8,
-            Type::Uint(n) => ((*n + 7) / 8) as u8,
+            Type::Int(n) => (*n).div_ceil(8) as u8,
+            Type::Uint(n) => (*n).div_ceil(8) as u8,
             Type::Rational => unreachable!(),
             Type::Bytes(n) => *n,
             Type::Enum(n) => ns.enums[*n].ty.bytes(ns),

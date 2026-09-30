@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #[cfg(feature = "soroban")]
-pub mod soroban_testcases;
-
 use solang::codegen::Options;
 use solang::file_resolver::FileResolver;
 use solang::sema::ast::Namespace;
 use solang::sema::diagnostics::Diagnostics;
 use solang::{compile, Target};
 use soroban_sdk::testutils::Logs;
-use soroban_sdk::{vec, Address, Env, Symbol, Val};
+use soroban_sdk::{vec, Address, ConstructorArgs, Env, Symbol, Val};
 use std::ffi::OsStr;
+pub mod soroban_testcases;
 
 // TODO: register accounts, related balances, events, etc.
 pub struct SorobanEnv {
@@ -97,7 +96,7 @@ impl SorobanEnv {
         for arg in args {
             args_soroban.push_back(arg)
         }
-        println!("args_soroban: {:?}", args_soroban);
+        println!("args: {args_soroban:?}");
         // To avoid running out of fuel
         self.env.cost_estimate().budget().reset_unlimited();
         self.env.invoke_contract(addr, &func, args_soroban)
@@ -127,6 +126,19 @@ impl SorobanEnv {
         let wasm = build_wasm(src).0;
 
         let addr = self.register_contract(wasm);
+
+        self.contracts.push(addr.clone());
+
+        addr
+    }
+
+    pub fn deploy_contract_with_args<A>(&mut self, src: &str, args: A) -> Address
+    where
+        A: ConstructorArgs,
+    {
+        let wasm = build_wasm(src).0;
+
+        let addr = self.env.register(wasm.as_slice(), args);
 
         self.contracts.push(addr.clone());
 

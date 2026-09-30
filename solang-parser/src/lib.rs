@@ -23,7 +23,10 @@ mod tests;
     clippy::needless_lifetimes,
     clippy::type_complexity,
     clippy::ptr_arg,
-    clippy::just_underscores_and_digits
+    clippy::just_underscores_and_digits,
+    clippy::empty_line_after_outer_attr,
+    clippy::large_enum_variant,
+    clippy::uninlined_format_args
 )]
 mod solidity {
     include!(concat!(env!("OUT_DIR"), "/solidity.rs"));

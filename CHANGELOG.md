@@ -4,15 +4,117 @@ will be documented here.
 
 ## Unreleased
 
-### Added
-- **Soroban** Work on adding support for [Stellar's Soroban](https://soroban.stellar.org/docs) contracts platforms started, by adding a skeleton that supports the Soroban runtime. [Salaheldin Soliman](https://github.com/salaheldinsoliman)
+## v0.4.0 Thebes
 
-- The `string.concat()` and `bytes.concat()` builtin functions are supported. [seanyoung](https://github.com/seanyoung)
+### Added
+- **Soroban** Support for structs in contract storage. [Islam-Imad](https://github.com/Islam-Imad)
+- **Soroban** ABI encode/decode for structs via a named-field `MAP` object. [Islam-Imad](https://github.com/Islam-Imad)
+- **Soroban** Support for arrays in contract storage. [Islam-Imad](https://github.com/Islam-Imad)
+- **Soroban** ABI encode/decode for dynamic memory arrays. [Islam-Imad](https://github.com/Islam-Imad)
+- **Soroban** Encoder/decoder for static (fixed-length) arrays. [Islam-Imad](https://github.com/Islam-Imad)
+- **Soroban** Support for the `mapping` storage type. [Islam-Imad](https://github.com/Islam-Imad)
+- **Soroban** Encode/decode `(u)int256` as a small object. [Islam-Imad](https://github.com/Islam-Imad)
+- **Soroban** Support for the `block.number` builtin. [slash-aech](https://github.com/slash-aech)
+- **Soroban** Support for the `keccak256` builtin. [slash-aech](https://github.com/slash-aech)
+- **Soroban** Support for the `sha256` builtin. [Ahmed0427](https://github.com/Ahmed0427)
+- **Soroban** Ported 14 Stellar example contracts: `hello_world`, `pause`,
+  `increment_with_pause`, `custom_types`, `other_custom_types`, `events`,
+  `single_offer`, `atomic_multiswap`, `upgradeable_contract`, `merkle_distribution`,
+  `eth_abi`, `mint_lock`, `deployer` and `groth16_verifier`. [Islam-Imad](https://github.com/Islam-Imad)
 
 ### Changed
+- **Soroban** Lower `extendTtl` and `extendInstanceTtl` in codegen instead of on the emit path. [Ahmad-Faraj](https://github.com/Ahmad-Faraj)
+- **Soroban** Lower the ledger timestamp in codegen instead of on the emit path. [slash-aech](https://github.com/slash-aech)
+- **Soroban** Updated the Soroban support matrix. [Islam-Imad](https://github.com/Islam-Imad)
+
+### Fixed
+- **Soroban** Fixed local-arrays-of-struct handling and improved test coverage. [Islam-Imad](https://github.com/Islam-Imad)
+- **Soroban** Allocate arrays using their element size. [salaheldinsoliman](https://github.com/salaheldinsoliman)
+- **Soroban** Fixed `i64` ABI encode/decode. [Islam-Imad](https://github.com/Islam-Imad)
+- **Soroban** Fixed `i128`/`u128` encoding high-bit truncation and the signed small-form. [Ahmed0427](https://github.com/Ahmed0427)
+
+## v0.3.5 Luxor
+
+### Added
+- **Soroban** Support for `string`, `bytes` and `bytesN` types. [Islam-Imad](https://github.com/Islam-Imad)
+- **Soroban** Support for structs. [salaheldinsoliman](https://github.com/salaheldinsoliman)
+- **Soroban** Support for (u)int256. [Pratyksh Gupta](https://github.com/Pratyksh-Gupta)
+- **Soroban** Support for dynamic memory arrays. [salaheldinsoliman](https://github.com/salaheldinsoliman)
+- **Soroban** Vectors are represented in storage as `VecObject`s. [salaheldinsoliman](https://github.com/salaheldinsoliman)
+- **Soroban** Integer width rounding for unsupported integer widths. [Pratyksh Gupta](https://github.com/Pratyksh-Gupta)
+- **Soroban** Events are emitted via the `contract_event` host function. [0xull](https://github.com/0xull)
+- **Soroban** Added a `pause` example. [Amit Singhmar](https://github.com/Amit5601)
+
+### Changed
+- **codegen** Large internal refactor: introduced a `TargetCodegen` trait and moved
+  the Solana, Polkadot and Soroban backends under `src/codegen/targets/`, threading the
+  target through the lowering call graph and routing target-specific hooks (abi
+  encode/decode, storage arrays, events, builtins, load/store) through the trait. Added
+  an `EvmTarget` scaffold. [Islam-Imad](https://github.com/Islam-Imad)
+- **Soroban** Updated the Soroban protocol version to match testnet. [Ahmad Sameh](https://github.com/ahmadsamehh)
+- Bumped the inkwell crate to 0.5.0. [seanyoung](https://github.com/seanyoung)
+- Migrated the toolchain to Rust 1.90 (via 1.88). [salaheldinsoliman](https://github.com/salaheldinsoliman)
+- Expanded the Soroban integration tests and examples, and reorganized the docs to
+  clarify Soroban support status. [salaheldinsoliman](https://github.com/salaheldinsoliman), [Mohamed Basuony](https://github.com/mohamedbasuony)
+- Binaries are uploaded on every push to the main branch. [salaheldinsoliman](https://github.com/salaheldinsoliman)
+- Moved Lucas and Xermicus to Emeritus Maintainers. [seanyoung](https://github.com/seanyoung)
+
+### Fixed
+- Committed `Cargo.lock` (pinning `ed25519-dalek` to 2.2.0) so CI and release builds are
+  reproducible and no longer break on semver-compatible upstream dependency drift; the
+  lock is un-ignored in both `.gitignore` and `.dockerignore`. [salaheldinsoliman](https://github.com/salaheldinsoliman)
+- The VS Code extension test runner no longer collects stray `*.test.js` files from
+  `node_modules`. [salaheldinsoliman](https://github.com/salaheldinsoliman)
+- **Soroban** Improved error reporting. [mohamedbasuony](https://github.com/mohamedbasuony)
+- **Soroban** Use the instance storage modifier to match upstream. [Amit Singhmar](https://github.com/Amit5601)
+- **Soroban** Propagate `strict_soroban_types` and re-enable the Soroban testcases. [Pratyksh Gupta](https://github.com/Pratyksh-Gupta)
+- Silenced the `mismatched_lifetime_syntaxes` lint. [Samuel Moelius](https://github.com/smoelius)
+- Fixed clippy warnings for Rust 1.86 and 1.88, and fixed the docs test. [seanyoung](https://github.com/seanyoung)
+- Fixed typos in the documentation. [Pratyksh Gupta](https://github.com/Pratyksh-Gupta), [John Wick](https://github.com/johnwick)
+
+## v0.3.4 London
+
+### Added
+- **Soroban** Support for [Stellar Asset Contract(SAC)](https://developers.stellar.org/docs/tokens/stellar-asset-contract)
+- **Soroban** Support for [Cross Contract Calls](https://developers.stellar.org/docs/build/smart-contracts/example-contracts/cross-contract-call)
+- **Soroban** Support for [Soroban Authorization Framework](https://developers.stellar.org/docs/learn/fundamentals/contract-development/authorization)
+- **Soroban** Support for different [Soroban Storage types](https://developers.stellar.org/docs/build/guides/storage/choosing-the-right-storage)
+- **Soroban** Work on adding support for [Stellar's Soroban](https://soroban.stellar.org/docs) contracts platforms started, by adding a skeleton that supports the Soroban runtime. [Salaheldin Soliman](https://github.com/salaheldinsoliman)
+- The `string.concat()` and `bytes.concat()` builtin functions are supported. [seanyoung](https://github.com/seanyoung)
+- **Experimental**: Three address code format IR for the CFG has been implemented (disabled by default).
+  [fanyi-zhao](https://github.com/fanyi-zhao).
+- **Polkadot**: Compatibility with ink! v5.0 metadata and substrate-contracts-node v0.39.0
+- Implement event selectors [seanyoung](https://github.com/seanyoung)
+- Add a feature flag for compiling language server [xermicus](https://github.com/xermicus)
+- Parsing the pragma solidity version numbers, making this information available in the downstream 
+  compilation pipeline [seanyoung](https://github.com/seanyoung)
+
+### Changed
+- **Polkadot/BREAKING**: Event encoding and topics follow [ink! v5.0](https://use.ink/faq/migrating-from-ink-4-to-5#events-20-1)
 - **BREAKING** The non-standard extension of concatenating strings using the `+` operator
   has been removed, use `string.concat()` instead. [seanyoung](https://github.com/seanyoung)
 - Removed the `--no-log-api-return-codes` compile flag as this is now done by the runtime [xermicus](https://github.com/xermicus)
+- **Solana/BREAKING**: Remove balance, transfer, and send builtins from Solana [LucasSte](https://github.com/LucasSte)
+- No longer support numbers in octal notation [seanyoung](https://github.com/seanyoung)
+- Moved to LLVM version 16 [seanyoung](https://github.com/seanyoung)
+- Improve overloaded function call diagnostics: From Solidity 0.6 onwards, overloaded functions or events
+  resolving to multiple candidates are an error. In earlier versions, the first result is used.
+  [seanyoung](https://github.com/seanyoung)
+- **Polkadot**: Implement the caller_is_root runtime API as a builtin [xermicus](https://github.com/xermicus)
+
+### Fixed
+- [Two Infinite loops in codegen](https://github.com/hyperledger-solang/solang/commit/c6db2acc8a3927fae17c437eeeea0d0ae49a67df), thanks to @smoelius.
+- [Handle abi.encode() with infinite empty arguments](https://github.com/hyperledger-solang/solang/commit/12a6d83b91f7f5a4cc48156e1112638e733e143a), thanks to @smoelius.
+- Unreachable code, function types with parameter/return names and unknown assembly flags are warnings
+  instead of errors, matching with solc. [xermicus](https://github.com/xermicus)
+- Fixed a bunch of typos in the documentation [divdeploy](https://github.com/divdeploy)
+- Clean up the LLD linker context after linking each contract, preventing potential issues when compiling
+  multiple contracts at once. [xermicus](https://github.com/xermicus)
+- Expression statement should be followed by a semicolon, fixing a bug where "_;" was incorrectly parsed
+  as a variable. [seanyoung](https://github.com/seanyoung)
+- Represent type(T) correctly in the AST, fixing various related issues [seanyoung](https://github.com/seanyoung)
+- Fix a bug in abi.encodeCall() argument parsing when there is only a single argument [seanyoung](https://github.com/seanyoung)
+- Fixed a codegen bug when the RHS of a shift expression is a struct member [PaddyClark0](https://github.com/PaddyClark0)
 
 ## v0.3.3 Atlantis
 
@@ -34,7 +136,7 @@ There are many fixes all over the code base.
   }
   ```
 - The language server can now format Solidity source code using the `forge-fmt` crate. [chioni16](https://github.com/chioni16)
-- The langauge server can now do go references, go to implementation, and go to type
+- The language server can now do go references, go to implementation, and go to type
   definition. [chioni16](https://github.com/chioni16)
 - **Polkadot** `Panic` errors can now be caught in try-catch statements [xermicus](https://github.com/xermicus)
 - **Polkadot** custom errors are now supported [xermicus](https://github.com/xermicus)
@@ -83,7 +185,7 @@ The language server is much improved, and many fixes all over.
 
 ### Changed
 - The Substrate target has been renamed to Polkadot. [xermicus](https://github.com/xermicus)
-- **Polkadot** `assert()` and `require()` is now implemented as a transction revert, rather
+- **Polkadot** `assert()` and `require()` is now implemented as a transaction revert, rather
   than a trap. The error data is returned, and encoded the same as on Ethereum. Error data is now
   passed to the calling contract, all the way up the call stack. [xermicus](https://github.com/xermicus)
 - **Polkadot** constructor can be non-payable. [xermicus](https://github.com/xermicus)
@@ -105,7 +207,7 @@ The language server is much improved, and many fixes all over.
   syntax `tx.accounts.my_account`. [LucasSte](https://github.com/LucasSte)
 - `delegatecall()` builtin has been added for Substrate. [xermicus](https://github.com/xermicus)
 - `get_contents_of_file_no` for Solang parser. [BenTheKush](https://github.com/BenTheKush)
-- `set_code_hash()` builtin has been aded for Substrate. [xermicus](https://github.com/xermicus)
+- `set_code_hash()` builtin has been added for Substrate. [xermicus](https://github.com/xermicus)
 
 ### Fixed
 - Diagnostics do not include large numbers anymore. [seanyoung](https://github.com/seanyoung)
@@ -117,7 +219,7 @@ The language server is much improved, and many fixes all over.
 - Do not allow push and pop in fixed length arrays. [LucasSte](https://github.com/LucasSte)
 - Improve unused variable elimination to remove unused arrays. [LucasSte](https://github.com/LucasSte)
 - Salt argument should be of type `bytes32`. [seanyoung](https://github.com/seanyoung)
-- Allow return vallues to be ignored in try-catch statements. [seanyoung](https://github.com/seanyoung)
+- Allow return values to be ignored in try-catch statements. [seanyoung](https://github.com/seanyoung)
 - Optimize modifiers' CFGs. [xermicus](https://github.com/xermicus)
 - Fix an error whereby building large contracts would cause an LLVM error. [LucasSte](https://github.com/LucasSte)
 - A constructor for a Solana contract cannot run twice on the same data account. [seanyoung](https://github.com/seanyoung)
@@ -173,7 +275,7 @@ The parser and semantic analysis stage of Solang have gone through
   [LucasSte](https://github.com/LucasSte)
 
 ### Changed
-- **Solana**: Addresses are now base58 encoded when formated with `"address:{}".format(address)`.
+- **Solana**: Addresses are now base58 encoded when formatted with `"address:{}".format(address)`.
   [LucasSte](https://github.com/LucasSte)
 - **Substrate**: No longer use the prefixed names for seal runtime API calls, which grants small improvements in contract sizes. [xermicus](https://github.com/xermicus)
 
@@ -300,7 +402,7 @@ substrate contracts node `v0.22.1`.
   supported, like in `ink!`.
   [xermicus](https://github.com/xermicus)
 - All provided examples as well as most of the Solidity code snippets in our
-  documentation are now checked for succesful compilation on the Solang CI.
+  documentation are now checked for successful compilation on the Solang CI.
   [xermicus](https://github.com/xermicus)
 - **Substrate:** Fix events with topics. The topic hashes generated by Solang
   contracts are now exactly the same as those generated by `ink!`.
@@ -339,7 +441,7 @@ substrate contracts node `v0.22.1`.
   [LucasSte](https://github.com/LucasSte)
 - Add a wrapper for the Solana System Program
   [LucasSte](https://github.com/LucasSte)
-- The selector for functions can be overriden with the `selector=hex"abcd0123"`
+- The selector for functions can be overridden with the `selector=hex"abcd0123"`
   syntax.
   [seanyoung](https://github.com/seanyoung)
 - Shell completion is available using the `solang shell-completion` subcommand.
@@ -412,7 +514,7 @@ substrate contracts node `v0.22.1`.
 ## v0.1.9
 
 ### Added
-- Added support for solc import mapppings using `--importmap`
+- Added support for solc import mappings using `--importmap`
 - Added support for Events on Solana
 - `msg.data`, `msg.sig`, `msg.value`, `block.number`, and `block.slot` are
   implemented for Solana

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::codegen::interface::TargetCodegen;
 use crate::codegen::Expression;
 use crate::sema::ast;
 use num_bigint::BigInt;
@@ -91,15 +92,25 @@ pub fn storage_slots_array_push(
     ns: &Namespace,
     vartab: &mut Vartable,
     opt: &Options,
+    target: &dyn TargetCodegen,
 ) -> Expression {
     // set array+length to val_expr
     let slot_ty = ns.storage_type();
     let length_pos = vartab.temp_anonymous(&slot_ty);
 
-    let var_expr = expression(&args[0], cfg, contract_no, func, ns, vartab, opt);
+    let var_expr = expression(&args[0], cfg, contract_no, func, ns, vartab, opt, target);
 
     // TODO(Soroban): Storage type here is None, since arrays are not yet supported in Soroban
-    let expr = load_storage(loc, &slot_ty, var_expr.clone(), cfg, vartab, None, ns);
+    let expr = load_storage(
+        loc,
+        &slot_ty,
+        var_expr.clone(),
+        cfg,
+        vartab,
+        None,
+        ns,
+        target,
+    );
 
     cfg.add(
         vartab,
@@ -114,42 +125,45 @@ pub fn storage_slots_array_push(
 
     let entry_pos = vartab.temp_anonymous(&slot_ty);
 
+    let array_offset = target.storage_array_entry_offset(
+        loc,
+        &var_expr,
+        Expression::Variable {
+            loc: *loc,
+            ty: slot_ty.clone(),
+            var_no: length_pos,
+        },
+        &elem_ty,
+        &slot_ty,
+        cfg,
+        vartab,
+        ns,
+    );
+
     cfg.add(
         vartab,
         Instr::Set {
             loc: pt::Loc::Codegen,
             res: entry_pos,
-            expr: array_offset(
-                loc,
-                Expression::Keccak256 {
-                    loc: *loc,
-                    ty: slot_ty.clone(),
-                    exprs: vec![var_expr.clone()],
-                },
-                Expression::Variable {
-                    loc: *loc,
-                    ty: slot_ty.clone(),
-                    var_no: length_pos,
-                },
-                elem_ty.clone(),
-                ns,
-            ),
+            expr: array_offset,
         },
     );
 
     if args.len() == 2 {
-        let value = expression(&args[1], cfg, contract_no, func, ns, vartab, opt);
+        let value = expression(&args[1], cfg, contract_no, func, ns, vartab, opt, target);
+        let entry_slot = Expression::Variable {
+            loc: *loc,
+            ty: slot_ty.clone(),
+            var_no: entry_pos,
+        };
+        let value = target.prepare_storage_value(value, &entry_slot, cfg, vartab, ns);
 
         cfg.add(
             vartab,
             Instr::SetStorage {
                 ty: elem_ty.clone(),
                 value,
-                storage: Expression::Variable {
-                    loc: *loc,
-                    ty: slot_ty.clone(),
-                    var_no: entry_pos,
-                },
+                storage: entry_slot,
                 storage_type: None,
             },
         );
@@ -171,6 +185,8 @@ pub fn storage_slots_array_push(
             value: BigInt::one(),
         }),
     };
+
+    let new_length = target.prepare_storage_value(new_length, &var_expr, cfg, vartab, ns);
 
     cfg.add(
         vartab,
@@ -204,6 +220,7 @@ pub fn storage_slots_array_pop(
     ns: &Namespace,
     vartab: &mut Vartable,
     opt: &Options,
+    target: &dyn TargetCodegen,
 ) -> Expression {
     // set array+length to val_expr
     let slot_ty = ns.storage_type();
@@ -211,9 +228,18 @@ pub fn storage_slots_array_pop(
     let length_pos = vartab.temp_anonymous(&slot_ty);
 
     let ty = args[0].ty();
-    let var_expr = expression(&args[0], cfg, contract_no, func, ns, vartab, opt);
+    let var_expr = expression(&args[0], cfg, contract_no, func, ns, vartab, opt, target);
     // TODO(Soroban): Storage type here is None, since arrays are not yet supported in Soroban
-    let expr = load_storage(loc, &length_ty, var_expr.clone(), cfg, vartab, None, ns);
+    let expr = load_storage(
+        loc,
+        &length_ty,
+        var_expr.clone(),
+        cfg,
+        vartab,
+        None,
+        ns,
+        target,
+    );
 
     cfg.add(
         vartab,
@@ -263,26 +289,28 @@ pub fn storage_slots_array_pop(
     cfg.set_basic_block(has_elements);
     let new_length = vartab.temp_anonymous(&slot_ty);
 
+    let subtract = Expression::Subtract {
+        loc: *loc,
+        ty: length_ty.clone(),
+        overflowing: true,
+        left: Box::new(Expression::Variable {
+            loc: *loc,
+            ty: length_ty.clone(),
+            var_no: length_pos,
+        }),
+        right: Box::new(Expression::NumberLiteral {
+            loc: *loc,
+            ty: length_ty.clone(),
+            value: BigInt::one(),
+        }),
+    };
+
     cfg.add(
         vartab,
         Instr::Set {
             loc: pt::Loc::Codegen,
             res: new_length,
-            expr: Expression::Subtract {
-                loc: *loc,
-                ty: length_ty.clone(),
-                overflowing: true,
-                left: Box::new(Expression::Variable {
-                    loc: *loc,
-                    ty: length_ty.clone(),
-                    var_no: length_pos,
-                }),
-                right: Box::new(Expression::NumberLiteral {
-                    loc: *loc,
-                    ty: length_ty,
-                    value: BigInt::one(),
-                }),
-            },
+            expr: subtract,
         },
     );
 
@@ -291,26 +319,27 @@ pub fn storage_slots_array_pop(
     let elem_ty = ty.storage_array_elem().deref_any().clone();
     let entry_pos = vartab.temp_anonymous(&slot_ty);
 
+    let array_offset_expr = target.storage_array_entry_offset(
+        loc,
+        &var_expr,
+        Expression::Variable {
+            loc: *loc,
+            ty: slot_ty.clone(),
+            var_no: new_length,
+        },
+        &elem_ty,
+        &slot_ty,
+        cfg,
+        vartab,
+        ns,
+    );
+
     cfg.add(
         vartab,
         Instr::Set {
             loc: pt::Loc::Codegen,
             res: entry_pos,
-            expr: array_offset(
-                loc,
-                Expression::Keccak256 {
-                    loc: *loc,
-                    ty: slot_ty.clone(),
-                    exprs: vec![var_expr.clone()],
-                },
-                Expression::Variable {
-                    loc: *loc,
-                    ty: slot_ty.clone(),
-                    var_no: new_length,
-                },
-                elem_ty.clone(),
-                ns,
-            ),
+            expr: array_offset_expr,
         },
     );
 
@@ -329,6 +358,7 @@ pub fn storage_slots_array_pop(
             vartab,
             None,
             ns,
+            target,
         );
 
         cfg.add(
@@ -390,8 +420,9 @@ pub fn array_push(
     ns: &Namespace,
     vartab: &mut Vartable,
     opt: &Options,
+    target: &dyn TargetCodegen,
 ) -> Expression {
-    let storage = expression(&args[0], cfg, contract_no, func, ns, vartab, opt);
+    let storage = expression(&args[0], cfg, contract_no, func, ns, vartab, opt, target);
 
     let mut ty = args[0].ty().storage_array_elem();
 
@@ -404,6 +435,7 @@ pub fn array_push(
             ns,
             vartab,
             opt,
+            target,
         ))
     } else {
         ty.deref_any().default(ns)
@@ -443,8 +475,9 @@ pub fn array_pop(
     ns: &Namespace,
     vartab: &mut Vartable,
     opt: &Options,
+    target: &dyn TargetCodegen,
 ) -> Expression {
-    let storage = expression(&args[0], cfg, contract_no, func, ns, vartab, opt);
+    let storage = expression(&args[0], cfg, contract_no, func, ns, vartab, opt, target);
 
     let ty = args[0].ty().storage_array_elem().deref_into();
 

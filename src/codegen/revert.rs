@@ -11,6 +11,7 @@ use super::{
     vartable::Vartable,
 };
 
+use crate::codegen::interface::TargetCodegen;
 use crate::codegen::Expression;
 use crate::sema::{
     ast,
@@ -32,6 +33,7 @@ pub(crate) const PANIC_SELECTOR: [u8; 4] = [0x4e, 0x48, 0x7b, 0x71];
 ///
 /// Marked as non-exhaustive because Solidity may add more variants in the future.
 #[non_exhaustive]
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq, Clone)]
 pub enum SolidityError {
     /// Reverts with "empty error data"; stems from `revert()` or `require()` without string arguments.
@@ -187,7 +189,7 @@ pub(super) fn assert_failure(
     vartab: &mut Vartable,
 ) {
     // On Solana, returning the encoded arguments has no effect
-    if ns.target == Target::Solana {
+    if ns.target == Target::Solana || ns.target == Target::Soroban {
         cfg.add(vartab, Instr::AssertFailure { encoded_args: None });
         return;
     }
@@ -204,10 +206,11 @@ pub(super) fn expr_assert(
     ns: &Namespace,
     vartab: &mut Vartable,
     opt: &Options,
+    target: &dyn TargetCodegen,
 ) -> Expression {
     let true_ = cfg.new_basic_block("noassert".to_owned());
     let false_ = cfg.new_basic_block("doassert".to_owned());
-    let cond = expression(args, cfg, contract_no, func, ns, vartab, opt);
+    let cond = expression(args, cfg, contract_no, func, ns, vartab, opt, target);
     cfg.add(
         vartab,
         Instr::BranchCond {
@@ -240,10 +243,11 @@ pub(super) fn require(
     vartab: &mut Vartable,
     opt: &Options,
     loc: Loc,
+    target: &dyn TargetCodegen,
 ) -> Expression {
     let true_ = cfg.new_basic_block("noassert".to_owned());
     let false_ = cfg.new_basic_block("doassert".to_owned());
-    let cond = expression(&args[0], cfg, contract_no, func, ns, vartab, opt);
+    let cond = expression(&args[0], cfg, contract_no, func, ns, vartab, opt, target);
     cfg.add(
         vartab,
         Instr::BranchCond {
@@ -255,10 +259,10 @@ pub(super) fn require(
     cfg.set_basic_block(false_);
     let expr = args
         .get(1)
-        .map(|s| expression(s, cfg, contract_no, func, ns, vartab, opt));
+        .map(|s| expression(s, cfg, contract_no, func, ns, vartab, opt, target));
 
     // On Solana and Polkadot, print the reason
-    if opt.log_runtime_errors && (ns.target == Target::Solana || ns.target.is_polkadot()) {
+    if opt.log_runtime_errors {
         if let Some(expr) = expr.clone() {
             let prefix = b"runtime_error: ";
             let error_string = format!(
@@ -287,7 +291,25 @@ pub(super) fn require(
                     ),
                 ],
             };
-            cfg.add(vartab, Instr::Print { expr: print_expr });
+
+            let expr_string = prefix
+                .to_vec()
+                .iter()
+                .chain(error_string.as_bytes())
+                .copied()
+                .collect::<Vec<u8>>();
+
+            let to_print = if ns.target == Target::Soroban {
+                Expression::BytesLiteral {
+                    loc: Codegen,
+                    ty: Type::String,
+                    value: expr_string.to_vec(),
+                }
+            } else {
+                print_expr
+            };
+
+            cfg.add(vartab, Instr::Print { expr: to_print });
         } else {
             log_runtime_error(
                 opt.log_runtime_errors,
@@ -319,21 +341,22 @@ pub(super) fn revert(
     vartab: &mut Vartable,
     opt: &Options,
     loc: &Loc,
+    target: &dyn TargetCodegen,
 ) {
     let exprs = args
         .iter()
-        .map(|s| expression(s, cfg, contract_no, func, ns, vartab, opt))
+        .map(|s| expression(s, cfg, contract_no, func, ns, vartab, opt, target))
         .collect::<Vec<_>>();
-
     if opt.log_runtime_errors {
         match (error_no, exprs.first()) {
             // In the case of Error(string), we can print the reason
             (None, Some(expr)) => {
-                let prefix = b"runtime_error: ";
+                let prefix: &[u8; 15] = b"runtime_error: ";
                 let error_string = format!(
                     " revert encountered in {},\n",
                     ns.loc_to_string(PathDisplay::Filename, loc)
                 );
+
                 let print_expr = Expression::FormatString {
                     loc: Codegen,
                     args: vec![
@@ -356,14 +379,32 @@ pub(super) fn revert(
                         ),
                     ],
                 };
-                cfg.add(vartab, Instr::Print { expr: print_expr });
+
+                let expr_string = prefix
+                    .to_vec()
+                    .iter()
+                    .chain(error_string.as_bytes())
+                    .copied()
+                    .collect::<Vec<u8>>();
+
+                let to_print = Expression::BytesLiteral {
+                    loc: Codegen,
+                    ty: Type::String,
+                    value: expr_string.to_vec(),
+                };
+
+                if ns.target == Target::Soroban {
+                    cfg.add(vartab, Instr::Print { expr: to_print });
+                } else {
+                    cfg.add(vartab, Instr::Print { expr: print_expr });
+                }
             }
             // Else: Not all fields might be formattable, just print the error type
             _ => {
                 let error_ty = error_no
                     .map(|n| ns.errors[n].name.as_str())
                     .unwrap_or("unspecified");
-                let reason = format!("{} revert encountered", error_ty);
+                let reason = format!("{error_ty} revert encountered");
                 log_runtime_error(opt.log_runtime_errors, &reason, *loc, cfg, vartab, ns);
             }
         }

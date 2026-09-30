@@ -142,7 +142,7 @@ Polkadot
 ~~~~~~~~
 
 uint128 ``block.minimum_deposit``
-    The minimum amonut needed to create a contract. This does not include
+    The minimum amount needed to create a contract. This does not include
     storage rent.
 
 Ethereum
@@ -709,4 +709,24 @@ If the TTL for the current contract instance and code (if applicable) is below t
     /// if the current TTL is smaller than 2000 ledgers
     function extendInstanceTtl() public view returns (int64) {
         return extendInstanceTtl(2000, 10000);
+    }
+
+deployContract(bytes32 wasm_hash, bytes32 salt, ...args)
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+The deployContract() function deploys a new contract from an already-uploaded Wasm blob and returns its address.
+
+The ``wasm_hash`` is the 32-byte hash of a Wasm blob already uploaded to the ledger. The new contract's address is derived deterministically from the current (deploying) contract's address and ``salt``. Any trailing arguments are passed to the deployed contract's constructor. This maps to the Soroban host function ``create_contract_with_constructor`` with the current contract as the deployer.
+
+.. note:: This is a global function, not a method, and is only available on the Soroban target
+
+.. code-block:: solidity
+
+    /// Deploys the Wasm identified by `wasm_hash`, running its `constructor(uint32)`
+    /// with `init_value`, and returns the new contract's address.
+    function deploy(bytes32 wasm_hash, bytes32 salt, uint32 init_value)
+        public
+        returns (address)
+    {
+        return deployContract(wasm_hash, salt, init_value);
     }

@@ -27,11 +27,11 @@ impl Diagnostics {
         self.contents.len()
     }
 
-    pub fn iter(&self) -> Iter<Diagnostic> {
+    pub fn iter(&self) -> Iter<'_, Diagnostic> {
         self.contents.iter()
     }
 
-    pub fn iter_mut(&mut self) -> IterMut<Diagnostic> {
+    pub fn iter_mut(&mut self) -> IterMut<'_, Diagnostic> {
         self.contents.iter_mut()
     }
 
@@ -69,6 +69,13 @@ impl Diagnostics {
         self.contents
             .iter()
             .filter(|&x| x.level == Level::Warning)
+            .count()
+    }
+
+    pub fn count_errors(&self) -> usize {
+        self.contents
+            .iter()
+            .filter(|&x| x.level == Level::Error)
             .count()
     }
 

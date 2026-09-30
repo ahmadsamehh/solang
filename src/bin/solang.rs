@@ -129,7 +129,12 @@ fn doc(doc_args: Doc) {
     let mut files = Vec::new();
 
     for filename in doc_args.package.input {
-        let ns = solang::parse_and_resolve(filename.as_os_str(), &mut resolver, target);
+        let ns = solang::parse_and_resolve_with_options(
+            filename.as_os_str(),
+            &mut resolver,
+            target,
+            None,
+        );
 
         ns.print_diagnostics(&resolver, verbose);
 
@@ -251,10 +256,7 @@ fn compile(compile_args: &Compile) {
 
         let authors = if let Some(authors) = &compile_args.package.authors {
             if !target.is_polkadot() {
-                eprintln!(
-                    "warning: the `authors` flag will be ignored for {} target",
-                    target
-                )
+                eprintln!("warning: the `authors` flag will be ignored for {target} target")
             }
             authors.clone()
         } else {
@@ -325,7 +327,8 @@ fn process_file(
     };
 
     // resolve phase
-    let mut ns = solang::parse_and_resolve(filepath.as_os_str(), resolver, target);
+    let mut ns =
+        solang::parse_and_resolve_with_options(filepath.as_os_str(), resolver, target, Some(opt));
 
     // codegen all the contracts; some additional errors/warnings will be detected here
     codegen(&mut ns, opt);
@@ -411,13 +414,13 @@ fn contract_results(
 
     let context = inkwell::context::Context::create();
 
-    let binary = resolved_contract.binary(ns, &context, opt, contract_no);
+    let bin = resolved_contract.binary(ns, &context, opt, contract_no);
 
-    if save_intermediates(&binary, compiler_output) {
+    if save_intermediates(&bin, compiler_output) {
         return;
     }
 
-    let code = binary.code(Generate::Linked).expect("llvm build");
+    let code = bin.code(Generate::Linked).expect("llvm build");
 
     #[cfg(feature = "wasm_opt")]
     if let Some(level) = opt.wasm_opt.filter(|_| ns.target.is_polkadot() && verbose) {
@@ -429,7 +432,7 @@ fn contract_results(
 
     if std_json {
         json_contracts.insert(
-            binary.name,
+            bin.name,
             JsonContract {
                 abi: abi::ethereum::gen_abi(contract_no, ns),
                 ewasm: Some(EwasmContract {
@@ -441,7 +444,7 @@ fn contract_results(
     } else {
         let bin_filename = output_file(
             compiler_output,
-            &binary.name,
+            &bin.name,
             ns.target.file_extension(),
             false,
         );
@@ -450,7 +453,7 @@ fn contract_results(
             eprintln!(
                 "info: Saving binary {} for contract {}",
                 bin_filename.display(),
-                binary.name
+                bin.name
             );
         }
 
@@ -460,13 +463,13 @@ fn contract_results(
 
         let (metadata, meta_ext) =
             abi::generate_abi(contract_no, ns, &code, verbose, default_authors, version);
-        let meta_filename = output_file(compiler_output, &binary.name, meta_ext, true);
+        let meta_filename = output_file(compiler_output, &bin.name, meta_ext, true);
 
         if verbose {
             eprintln!(
                 "info: Saving metadata {} for contract {}",
                 meta_filename.display(),
-                binary.name
+                bin.name
             );
         }
 
@@ -476,46 +479,46 @@ fn contract_results(
 }
 
 fn save_intermediates(
-    binary: &solang::emit::binary::Binary,
+    bin: &solang::emit::binary::Binary,
     compiler_output: &CompilerOutput,
 ) -> bool {
     let verbose = compiler_output.verbose;
 
     match compiler_output.emit.as_deref() {
         Some("llvm-ir") => {
-            let llvm_filename = output_file(compiler_output, &binary.name, "ll", false);
+            let llvm_filename = output_file(compiler_output, &bin.name, "ll", false);
 
             if verbose {
                 eprintln!(
                     "info: Saving LLVM IR {} for contract {}",
                     llvm_filename.display(),
-                    binary.name
+                    bin.name
                 );
             }
 
-            binary.dump_llvm(&llvm_filename).unwrap();
+            bin.dump_llvm(&llvm_filename).unwrap();
 
             true
         }
 
         Some("llvm-bc") => {
-            let bc_filename = output_file(compiler_output, &binary.name, "bc", false);
+            let bc_filename = output_file(compiler_output, &bin.name, "bc", false);
 
             if verbose {
                 eprintln!(
                     "info: Saving LLVM BC {} for contract {}",
                     bc_filename.display(),
-                    binary.name
+                    bin.name
                 );
             }
 
-            binary.bitcode(&bc_filename);
+            bin.bitcode(&bc_filename);
 
             true
         }
 
         Some("object") => {
-            let obj = match binary.code(Generate::Object) {
+            let obj = match bin.code(Generate::Object) {
                 Ok(o) => o,
                 Err(s) => {
                     println!("error: {s}");
@@ -523,13 +526,13 @@ fn save_intermediates(
                 }
             };
 
-            let obj_filename = output_file(compiler_output, &binary.name, "o", false);
+            let obj_filename = output_file(compiler_output, &bin.name, "o", false);
 
             if verbose {
                 eprintln!(
                     "info: Saving Object {} for contract {}",
                     obj_filename.display(),
-                    binary.name
+                    bin.name
                 );
             }
 
@@ -538,7 +541,7 @@ fn save_intermediates(
             true
         }
         Some("asm") => {
-            let obj = match binary.code(Generate::Assembly) {
+            let obj = match bin.code(Generate::Assembly) {
                 Ok(o) => o,
                 Err(s) => {
                     println!("error: {s}");
@@ -546,13 +549,13 @@ fn save_intermediates(
                 }
             };
 
-            let obj_filename = output_file(compiler_output, &binary.name, "asm", false);
+            let obj_filename = output_file(compiler_output, &bin.name, "asm", false);
 
             if verbose {
                 eprintln!(
                     "info: Saving Assembly {} for contract {}",
                     obj_filename.display(),
-                    binary.name
+                    bin.name
                 );
             }
 

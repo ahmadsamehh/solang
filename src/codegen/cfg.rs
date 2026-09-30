@@ -8,6 +8,7 @@ use super::{
     vartable::{Vars, Vartable},
     vector_to_slice, Options,
 };
+use crate::codegen::interface::TargetCodegen;
 use crate::codegen::subexpression_elimination::common_sub_expression_elimination;
 use crate::codegen::{undefined_variable, Expression, LLVMName};
 use crate::sema::ast::{
@@ -983,7 +984,7 @@ impl ControlFlowGraph {
                 )
             }
             Expression::GetRef { expr, .. } => {
-                format!("(deref {}", self.expr_to_string(contract, ns, expr))
+                format!("(deref {})", self.expr_to_string(contract, ns, expr))
             }
             Expression::VectorData { pointer } => {
                 format!("pointer pos {}", self.expr_to_string(contract, ns, pointer))
@@ -1275,7 +1276,7 @@ impl ControlFlowGraph {
                     None => "_".to_string(),
                 },
                 if let Some(no) = constructor_no {
-                    format!("{}", no)
+                    format!("{no}")
                 } else {
                     String::new()
                 },
@@ -1483,19 +1484,20 @@ fn is_there_virtual_function(
 
 /// Generate the CFG for a function. If function_no is None, generate the implicit default
 /// constructor
-pub fn generate_cfg(
+pub(crate) fn generate_cfg(
     contract_no: usize,
     function_no: Option<usize>,
     cfg_no: usize,
     all_cfgs: &mut Vec<ControlFlowGraph>,
     ns: &mut Namespace,
     opt: &Options,
+    target: &dyn TargetCodegen,
 ) {
     if is_there_virtual_function(ns, contract_no, function_no) {
         return;
     }
 
-    let mut cfg = function_cfg(contract_no, function_no, ns, opt);
+    let mut cfg = function_cfg(contract_no, function_no, ns, opt, target);
     let ast_fn = function_no
         .map(ASTFunction::SolidityFunction)
         .unwrap_or(ASTFunction::None);
@@ -1524,6 +1526,7 @@ pub fn generate_cfg(
                     chain_no,
                     ns,
                     opt,
+                    target,
                 );
                 optimize_and_check_cfg(&mut cfg, ns, ast_fn, opt);
             }
@@ -1609,6 +1612,7 @@ fn function_cfg(
     function_no: Option<usize>,
     ns: &mut Namespace,
     opt: &Options,
+    target: &dyn TargetCodegen,
 ) -> ControlFlowGraph {
     let mut vartab = match function_no {
         Some(function_no) => {
@@ -1727,8 +1731,16 @@ fn function_cfg(
                     .iter()
                     .enumerate()
                     .map(|(i, a)| {
-                        let expr =
-                            expression(a, &mut cfg, contract_no, Some(func), ns, &mut vartab, opt);
+                        let expr = expression(
+                            a,
+                            &mut cfg,
+                            contract_no,
+                            Some(func),
+                            ns,
+                            &mut vartab,
+                            opt,
+                            target,
+                        );
 
                         if let Some(id) = &func.symtable.arguments[i] {
                             let ty = expr.ty();
@@ -1806,6 +1818,7 @@ fn function_cfg(
             None,
             None,
             opt,
+            target,
         );
 
         if !stmt.reachable() {
@@ -1851,6 +1864,7 @@ pub(crate) fn populate_arguments<T: FunctionAttributes>(
     for (i, arg) in func.get_symbol_table().arguments.iter().enumerate() {
         if let Some(pos) = arg {
             let var = &func.get_symbol_table().vars[pos];
+
             cfg.add(
                 vartab,
                 Instr::Set {
@@ -1898,6 +1912,7 @@ fn generate_modifier_dispatch(
     chain_no: usize,
     ns: &mut Namespace,
     opt: &Options,
+    target: &dyn TargetCodegen,
 ) -> ControlFlowGraph {
     let (modifier_no, args) = resolve_modifier_call(
         &ns.functions[func_no].modifiers[chain_no],
@@ -1954,6 +1969,7 @@ fn generate_modifier_dispatch(
                 ns,
                 &mut vartab,
                 opt,
+                target,
             );
             cfg.add(
                 &mut vartab,
@@ -2011,6 +2027,7 @@ fn generate_modifier_dispatch(
             Some(&placeholder),
             Some(&return_instr),
             opt,
+            target,
         );
     }
 
@@ -2173,6 +2190,8 @@ impl Namespace {
     pub fn storage_type(&self) -> Type {
         if self.target == Target::Solana {
             Type::Uint(32)
+        } else if self.target == Target::Soroban {
+            Type::Uint(64)
         } else {
             Type::Uint(256)
         }
