@@ -48,12 +48,14 @@ jobs:
           path: solang
           # testdata/solidity is the pinned solc test suite sorobench runs.
           submodules: recursive
-          # Full history + tags, so `git describe` can name the release.
+          # Full history, so `git describe` can name the release.
           fetch-depth: 0
 
       - name: Name this run
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE/solang"
+          # Forks don't get upstream's tags when synced; fetch them for `describe`.
+          git -C solang fetch --quiet --tags https://github.com/hyperledger-solang/solang
           SOLANG_VERSION=$(git -C solang describe --tags --always)
           RUN_TIME=$(date -u +%Y-%m-%d_%H-%M)UTC
           REPORT_NAME="sorobench_${SOLANG_VERSION}_${RUN_TIME}"
