@@ -48,6 +48,19 @@ jobs:
           path: solang
           # testdata/solidity is the pinned solc test suite sorobench runs.
           submodules: recursive
+          # Full history + tags, so `git describe` can name the release.
+          fetch-depth: 0
+
+      - name: Name this run
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/solang"
+          SOLANG_VERSION=$(git -C solang describe --tags --always)
+          RUN_TIME=$(date -u +%Y-%m-%d_%H-%M)UTC
+          REPORT_NAME="sorobench_${SOLANG_VERSION}_${RUN_TIME}"
+          echo "SOLANG_VERSION=$SOLANG_VERSION" >> "$GITHUB_ENV"
+          echo "REPORT_NAME=$REPORT_NAME" >> "$GITHUB_ENV"
+          echo "Solang version: $SOLANG_VERSION"
+          echo "Report name:    $REPORT_NAME"
 
       - name: Checkout sorobench
         uses: actions/checkout@v4
@@ -82,23 +95,31 @@ jobs:
         env:
           SOROBENCH_CORPUS: ${{ github.workspace }}/solang/testdata/solidity/test/libsolidity/semanticTests
         run: |
-          echo "Solang: $(git -C ../solang rev-parse --short HEAD) ($(git -C ../solang describe --tags --always))"
+          echo "Solang: $SOLANG_VERSION"
           ./target/release/sorobench run-all
+
+      - name: Collect the reports under the run name
+        if: always()
+        run: |
+          mkdir -p "out/$REPORT_NAME"
+          cp sorobench/report/* "out/$REPORT_NAME/" 2>/dev/null || true
+          ls -la "out/$REPORT_NAME"
 
       - name: Add the headline to the run summary
         if: always()
-        working-directory: sorobench
         run: |
           {
-            echo "## sorobench on Solang @ $(git -C ../solang rev-parse --short HEAD)"
+            echo "## sorobench on Solang $SOLANG_VERSION"
             echo
-            if [ -f report/EXPLAINED.md ]; then
+            echo "Report: \`$REPORT_NAME\`"
+            echo
+            if [ -f "out/$REPORT_NAME/EXPLAINED.md" ]; then
               # Headline paragraph + the category table.
-              sed -n '3p' report/EXPLAINED.md
+              sed -n '3p' "out/$REPORT_NAME/EXPLAINED.md"
               echo
-              sed -n '/^## What the failures are/,/^A file/p' report/EXPLAINED.md
+              sed -n '/^## What the failures are/,/^A file/p' "out/$REPORT_NAME/EXPLAINED.md"
             else
-              echo "No report was produced."
+              echo "No EXPLAINED.md was produced."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -106,9 +127,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sorobench-report-${{ github.run_number }}
-          path: |
-            sorobench/report/EXPLAINED.md
-            sorobench/report/summary.md
-            sorobench/report/results.jsonl
+          name: ${{ env.REPORT_NAME }}
+          path: out/
           retention-days: 90
